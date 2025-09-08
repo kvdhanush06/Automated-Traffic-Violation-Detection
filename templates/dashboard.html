@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Overspeed Dashboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f2f2f2;
+        margin: 0;
+        padding: 20px;
+      }
+      h1 {
+        text-align: center;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+      }
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+      }
+      th {
+        background-color: #f2f2f2;
+      }
+      .video-container {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .video-feed {
+        max-width: 100%;
+        height: auto;
+        border: 2px solid #333;
+      }
+      .overspeed {
+        background-color: #ffe6e6;
+      }
+      .refresh-btn {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-bottom: 20px;
+      }
+      .refresh-btn:hover {
+        background-color: #45a049;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Automated Traffic Violation Detection Dashboard</h1>
+
+    <div class="video-container">
+      <h2>Live Video Feed</h2>
+      <img src="/video_feed" alt="Live Video Feed" class="video-feed" />
+    </div>
+
+    <button class="refresh-btn" onclick="location.reload()">
+      Refresh Data
+    </button>
+
+    <h2>Overspeed Violations</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Time</th>
+          <th>Speed Limit (km/h)</th>
+          <th>Vehicle Speed (km/h)</th>
+          <th>License Plate</th>
+          <th>Captured Image</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for violation in violations %}
+        <tr
+          class="{% if violation.speed_kmph > violation.speed_limit %}overspeed{% endif %}"
+        >
+          <td>{{ violation.date or 'N/A' }}</td>
+          <td>{{ violation.time or 'N/A' }}</td>
+          <td>
+            {{ "%.2f"|format(violation.speed_limit) if violation.speed_limit
+            else '0.00' }}
+          </td>
+          <td>
+            {{ "%.2f"|format(violation.speed_kmph) if violation.speed_kmph else
+            '0.00' }}
+          </td>
+          <td>{{ violation.plate_text or 'Not Detected' }}</td>
+          <td>
+            {% if violation.plate_image %}
+            <a href="/{{ violation.plate_image }}" target="_blank"
+              >View Image</a
+            >
+            {% else %} No Image {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if not violations %}
+    <p style="text-align: center; margin-top: 20px">
+      No violations detected yet.
+    </p>
+    {% endif %}
+  </body>
+</html>
