@@ -9,7 +9,7 @@ from speed_detector import run_detector
 
 
 def _run_flask(host, port):
-    run_app(host=host, port=port, debug=False)
+    run_app(host=host, port=port, debug=False, start_detector=False)
 
 
 def _run_detector(video_source, headless, speed_limit):

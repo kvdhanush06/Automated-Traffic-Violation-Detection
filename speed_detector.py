@@ -68,14 +68,26 @@ def try_open_camera(preferred_source):
         print(f"Trying camera source: {src}")
         cap = cv2.VideoCapture(src)
         if cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                print(f"Successfully opened camera {src}")
-                return cap, src
-            else:
-                cap.release()
+            # Try to read frames with retries (camera might need time to warm up)
+            for attempt in range(5):
+                ret, frame = cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    print(
+                        f"Successfully opened camera {src} (attempt {attempt + 1})")
+                    return cap, src
+                else:
+                    print(
+                        f"Camera {src} opened but no frame received (attempt {attempt + 1}), waiting...")
+                    time.sleep(0.5)  # Wait 0.5 seconds before retry
+
+            # If we get here, camera opened but couldn't read frames
+            print(
+                f"Camera {src} opened but failed to read frames after 5 attempts")
+            cap.release()
         else:
             print(f"Failed to open camera {src}")
+
+    print("No working camera found")
     return None, None
 
 
@@ -93,6 +105,14 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
             print('ERROR: Unable to open any camera source')
             return
         print(f"Using camera source: {actual_source}")
+
+        # Additional validation after opening
+        ret, test_frame = cap.read()
+        if not ret or test_frame is None:
+            print('ERROR: Camera opened but cannot read initial frame')
+            cap.release()
+            return
+        print(f"Camera validation successful: {test_frame.shape}")
     else:
         print(f"Using video file: {video_source}")
         cap = cv2.VideoCapture(video_source)
@@ -127,15 +147,20 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
             consecutive_read_failures += 1
 
             if is_camera:
-                # For cameras, handle read failures more gracefully
-                if consecutive_read_failures >= 10:  # Increased threshold for cameras
+                # For cameras, handle read failures more gracefully with progressive delays
+                if consecutive_read_failures >= 20:  # Increased threshold for cameras
                     current_video_duration = time.time() - video_start_time
                     print(
                         f"Camera read failure (attempt {consecutive_read_failures}, duration: {current_video_duration:.1f}s)")
-                    time.sleep(0.5)  # Longer delay for camera recovery
+                    print("Camera appears to be disconnected or malfunctioning")
+                    break  # Exit the loop instead of continuing indefinitely
+                elif consecutive_read_failures >= 10:
+                    # After 10 failures, use longer delays
+                    time.sleep(1.0)
                     continue
                 else:
-                    time.sleep(0.1)
+                    # For initial failures, use shorter delays
+                    time.sleep(0.2)
                     continue
             else:
                 # Original logic for video files

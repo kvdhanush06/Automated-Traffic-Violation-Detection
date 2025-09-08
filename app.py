@@ -120,9 +120,11 @@ def run_detector_thread():
     run_detector(headless=True)
 
 
-def run_app(host='0.0.0.0', port=5000, debug=False):
-    detector_thread = threading.Thread(target=run_detector_thread, daemon=True)
-    detector_thread.start()
+def run_app(host='0.0.0.0', port=5000, debug=False, start_detector=True):
+    if start_detector:
+        detector_thread = threading.Thread(
+            target=run_detector_thread, daemon=True)
+        detector_thread.start()
 
     app.run(host=host, port=port, debug=debug)
 
