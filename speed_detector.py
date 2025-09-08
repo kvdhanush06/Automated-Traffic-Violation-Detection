@@ -45,6 +45,40 @@ vehicle_names = {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
 mot_tracker = Sort()
 
 
+def try_open_camera(preferred_source):
+    sources_to_try = [preferred_source]
+
+    # Add other common indices
+    if isinstance(preferred_source, int):
+        for i in range(5):
+            if i not in sources_to_try:
+                sources_to_try.append(i)
+    elif isinstance(preferred_source, str) and preferred_source.isdigit():
+        pref_int = int(preferred_source)
+        sources_to_try = [pref_int]
+        for i in range(5):
+            if i != pref_int:
+                sources_to_try.append(i)
+    else:
+        # If it's a file, just try once
+        cap = cv2.VideoCapture(preferred_source)
+        return cap, preferred_source
+
+    for src in sources_to_try:
+        print(f"Trying camera source: {src}")
+        cap = cv2.VideoCapture(src)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret:
+                print(f"Successfully opened camera {src}")
+                return cap, src
+            else:
+                cap.release()
+        else:
+            print(f"Failed to open camera {src}")
+    return None, None
+
+
 def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LIMIT_KMPH,
                  only_overspeed=False, debug=True):
 
@@ -53,16 +87,18 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
         isinstance(video_source, str) and video_source.isdigit())
 
     if is_camera:
-        print(f"Using camera source: {video_source}")
-        cap = cv2.VideoCapture(int(video_source) if isinstance(
-            video_source, str) else video_source)
+        cap, actual_source = try_open_camera(
+            int(video_source) if isinstance(video_source, str) else video_source)
+        if cap is None:
+            print('ERROR: Unable to open any camera source')
+            return
+        print(f"Using camera source: {actual_source}")
     else:
         print(f"Using video file: {video_source}")
         cap = cv2.VideoCapture(video_source)
-
-    if not cap.isOpened():
-        print(f'ERROR: Unable to open video source: {video_source}')
-        return
+        if not cap.isOpened():
+            print(f'ERROR: Unable to open video source: {video_source}')
+            return
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
