@@ -48,11 +48,18 @@ mot_tracker = Sort()
 def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LIMIT_KMPH,
                  only_overspeed=False, debug=True):
 
-    if isinstance(video_source, int) or (isinstance(video_source, str) and video_source.isdigit()):
-        print(
-            f"WARNING: Using camera index {video_source}. Make sure VIDEO_SOURCE is set to a file path.")
+    # Determine if we're using a camera or video file
+    is_camera = isinstance(video_source, int) or (
+        isinstance(video_source, str) and video_source.isdigit())
 
-    cap = cv2.VideoCapture(video_source)
+    if is_camera:
+        print(f"Using camera source: {video_source}")
+        cap = cv2.VideoCapture(int(video_source) if isinstance(
+            video_source, str) else video_source)
+    else:
+        print(f"Using video file: {video_source}")
+        cap = cv2.VideoCapture(video_source)
+
     if not cap.isOpened():
         print(f'ERROR: Unable to open video source: {video_source}')
         return
@@ -60,10 +67,14 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
     fps = cap.get(cv2.CAP_PROP_FPS)
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    print(
-        f"Video source opened: {width}x{height} @ {fps} FPS, {total_frames} total frames")
+    if is_camera:
+        total_frames = -1  # Cameras don't have a fixed frame count
+        print(f"Camera opened: {width}x{height} @ {fps} FPS")
+    else:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        print(
+            f"Video file opened: {width}x{height} @ {fps} FPS, {total_frames} total frames")
 
     tracked = {}
     max_disappeared_seconds = 2.0
@@ -79,32 +90,45 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
         if not ret:
             consecutive_read_failures += 1
 
-            if consecutive_read_failures >= 3:
-                current_frame_pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-                current_video_duration = time.time() - video_start_time
-
-                if (current_video_duration >= MIN_VIDEO_DURATION and
-                        (current_frame_pos >= total_frames - 5 or current_frame_pos < 0)):
+            if is_camera:
+                # For cameras, handle read failures more gracefully
+                if consecutive_read_failures >= 10:  # Increased threshold for cameras
+                    current_video_duration = time.time() - video_start_time
                     print(
-                        f"Video ended (frame {current_frame_pos}/{total_frames}, duration: {current_video_duration:.1f}s), restarting...")
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    video_restarts += 1
-                    video_start_time = time.time()
-                    consecutive_read_failures = 0
-
-                    ret, frame = cap.read()
-                    if not ret:
-                        print(
-                            "ERROR: Cannot restart video after setting position to 0")
-                        break
+                        f"Camera read failure (attempt {consecutive_read_failures}, duration: {current_video_duration:.1f}s)")
+                    time.sleep(0.5)  # Longer delay for camera recovery
+                    continue
                 else:
-                    if debug and consecutive_read_failures % 10 == 0:
-                        print(
-                            f"Waiting for video end... (failures: {consecutive_read_failures}, duration: {current_video_duration:.1f}s)")
                     time.sleep(0.1)
                     continue
             else:
-                continue
+                # Original logic for video files
+                if consecutive_read_failures >= 3:
+                    current_frame_pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
+                    current_video_duration = time.time() - video_start_time
+
+                    if (current_video_duration >= MIN_VIDEO_DURATION and
+                            (current_frame_pos >= total_frames - 5 or current_frame_pos < 0)):
+                        print(
+                            f"Video ended (frame {current_frame_pos}/{total_frames}, duration: {current_video_duration:.1f}s), restarting...")
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        video_restarts += 1
+                        video_start_time = time.time()
+                        consecutive_read_failures = 0
+
+                        ret, frame = cap.read()
+                        if not ret:
+                            print(
+                                "ERROR: Cannot restart video after setting position to 0")
+                            break
+                    else:
+                        if debug and consecutive_read_failures % 10 == 0:
+                            print(
+                                f"Waiting for video end... (failures: {consecutive_read_failures}, duration: {current_video_duration:.1f}s)")
+                        time.sleep(0.1)
+                        continue
+                else:
+                    continue
         else:
             consecutive_read_failures = 0
 
