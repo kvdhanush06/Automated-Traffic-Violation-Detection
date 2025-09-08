@@ -32,6 +32,7 @@ opencv-python==4.12.0.88
 opencv-python-headless==4.12.0.88
 packaging==25.0
 pandas==2.3.2
+picamera2==0.3.19
 pillow==11.3.0
 polars==1.33.0
 psutil==7.0.0

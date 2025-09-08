@@ -9,6 +9,7 @@ import torch.serialization
 import ultralytics.nn.tasks as nn_tasks
 from sort import Sort
 from ocr_utils import extract_number_plate_text
+from picamera2 import Picamera2
 
 VIDEO_SOURCE = 0
 LINE_A_Y = 200
@@ -66,26 +67,43 @@ def try_open_camera(preferred_source):
 
     for src in sources_to_try:
         print(f"Trying camera source: {src}")
-        cap = cv2.VideoCapture(src)
-        if cap.isOpened():
-            # Try to read frames with retries (camera might need time to warm up)
-            for attempt in range(5):
-                ret, frame = cap.read()
-                if ret and frame is not None and frame.size > 0:
-                    print(
-                        f"Successfully opened camera {src} (attempt {attempt + 1})")
-                    return cap, src
+        try:
+            if src == 0:  # Use Picamera2 for default camera
+                picam2 = Picamera2()
+                picam2.configure(picam2.create_preview_configuration(
+                    main={"size": (640, 480)}))
+                picam2.start()
+                # Test capture
+                frame = picam2.capture_array()
+                if frame is not None and frame.size > 0:
+                    print(f"Successfully opened Picamera2 (source {src})")
+                    return picam2, src
                 else:
-                    print(
-                        f"Camera {src} opened but no frame received (attempt {attempt + 1}), waiting...")
-                    time.sleep(0.5)  # Wait 0.5 seconds before retry
+                    picam2.stop()
+                    picam2.close()
+            else:
+                cap = cv2.VideoCapture(src)
+                if cap.isOpened():
+                    # Try to read frames with retries (camera might need time to warm up)
+                    for attempt in range(5):
+                        ret, frame = cap.read()
+                        if ret and frame is not None and frame.size > 0:
+                            print(
+                                f"Successfully opened camera {src} (attempt {attempt + 1})")
+                            return cap, src
+                        else:
+                            print(
+                                f"Camera {src} opened but no frame received (attempt {attempt + 1}), waiting...")
+                            time.sleep(0.5)  # Wait 0.5 seconds before retry
 
-            # If we get here, camera opened but couldn't read frames
-            print(
-                f"Camera {src} opened but failed to read frames after 5 attempts")
-            cap.release()
-        else:
-            print(f"Failed to open camera {src}")
+                    # If we get here, camera opened but couldn't read frames
+                    print(
+                        f"Camera {src} opened but failed to read frames after 5 attempts")
+                    cap.release()
+                else:
+                    print(f"Failed to open camera {src}")
+        except Exception as e:
+            print(f"Error trying camera {src}: {e}")
 
     print("No working camera found")
     return None, None
@@ -107,11 +125,19 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
         print(f"Using camera source: {actual_source}")
 
         # Additional validation after opening
-        ret, test_frame = cap.read()
-        if not ret or test_frame is None:
-            print('ERROR: Camera opened but cannot read initial frame')
-            cap.release()
-            return
+        if hasattr(cap, 'capture_array'):  # Picamera2
+            test_frame = cap.capture_array()
+            width, height = 640, 480  # From configuration
+            fps = 30  # Approximate
+        else:  # cv2.VideoCapture
+            ret, test_frame = cap.read()
+            if not ret or test_frame is None:
+                print('ERROR: Camera opened but cannot read initial frame')
+                cap.release()
+                return
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
         print(f"Camera validation successful: {test_frame.shape}")
     else:
         print(f"Using video file: {video_source}")
@@ -119,15 +145,9 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
         if not cap.isOpened():
             print(f'ERROR: Unable to open video source: {video_source}')
             return
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    if is_camera:
-        total_frames = -1  # Cameras don't have a fixed frame count
-        print(f"Camera opened: {width}x{height} @ {fps} FPS")
-    else:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         print(
             f"Video file opened: {width}x{height} @ {fps} FPS, {total_frames} total frames")
@@ -141,7 +161,11 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
     consecutive_read_failures = 0
 
     while True:
-        ret, frame = cap.read()
+        if hasattr(cap, 'capture_array'):  # Picamera2
+            frame = cap.capture_array()
+            ret = True if frame is not None else False
+        else:  # cv2.VideoCapture
+            ret, frame = cap.read()
 
         if not ret:
             consecutive_read_failures += 1
@@ -358,7 +382,11 @@ def run_detector(video_source=VIDEO_SOURCE, headless=False, speed_limit=SPEED_LI
             print(f"Error processing frame {frame_count}: {e}")
             continue
 
-    cap.release()
+    if hasattr(cap, 'capture_array'):  # Picamera2
+        cap.stop()
+        cap.close()
+    else:  # cv2.VideoCapture
+        cap.release()
     if not headless:
         cv2.destroyAllWindows()
     print(f"Detector stopped. Processed {frame_count} frames.")
